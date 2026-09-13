@@ -1,0 +1,113 @@
+:root {
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  color: #1f2933;
+  background: #f5f7fa;
+}
+
+body {
+  margin: 0;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+h1 {
+  font-size: 1.6rem;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #d9e0e8;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
+.hint {
+  color: #697585;
+  font-size: 0.9rem;
+}
+
+.note {
+  color: #1c6b3c;
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  padding: 10px;
+  border: 1px solid #b7c2ce;
+  border-radius: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+button {
+  font-size: 0.95rem;
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #355c7d;
+  background: #355c7d;
+  color: #fff;
+  cursor: pointer;
+}
+
+button[type="button"]:nth-of-type(2) {
+  background: #5c7080;
+  border-color: #5c7080;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.errors {
+  color: #b3261e;
+  background: #fdecea;
+  border: 1px solid #f5c6c2;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  font-size: 0.92rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 12px;
+}
+
+th,
+td {
+  border: 1px solid #d9e0e8;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+th {
+  background: #eef2f6;
+}
+
+.taps {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+}
+
+.columns {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}

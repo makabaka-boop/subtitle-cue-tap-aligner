@@ -1,0 +1,14 @@
+# Local caches / virtualenvs
+.venv/
+node_modules/
+frontend/node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+dist/
+frontend/dist/
+test-results/
+playwright-report/
+
+# Env overrides
+.env

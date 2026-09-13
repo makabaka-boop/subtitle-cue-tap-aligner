@@ -1,0 +1,52 @@
+services:
+  api:
+    build: ./backend
+    environment:
+      PYTHONUNBUFFERED: "1"
+    ports:
+      # Override the host-side port with API_PORT, e.g. API_PORT=9000.
+      - "${API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request;json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health'))"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  web:
+    build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Override the host-side port with WEB_PORT, e.g. WEB_PORT=9001.
+      - "${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One-shot acceptance service. Not started by "docker compose up";
+  # run it with:  docker compose --profile verify run --rm verify
+  # It runs pytest, Vitest, the production build and Playwright against the
+  # running web/api stack, then exits non-zero on any failure.
+  verify:
+    profiles: ["verify"]
+    build: ./verify
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+    environment:
+      PLAYWRIGHT_BASE_URL: http://web:80
+      API_BASE_URL: http://api:8000
+      CI: "1"
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    entrypoint: ["/usr/local/bin/verify-entrypoint.sh"]
