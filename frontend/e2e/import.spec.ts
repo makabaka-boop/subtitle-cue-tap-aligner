@@ -52,10 +52,39 @@ test.describe("schedule import", () => {
     await expect(page.getByTestId("start-button")).toBeDisabled();
   });
 
-  test("adjacent large integers are accepted and rendered exactly", async ({
+  test("re-importing during a running rehearsal is refused, not silently reset", async ({
     page,
   }) => {
-    // These two adjacent values are indistinguishable to a float; the
+    await page.getByTestId("schedule-input").fill("开场|0\n主角|1200");
+    await page.getByTestId("import-button").click();
+    await expect(page.getByTestId("schedule-table")).toBeVisible();
+
+    await page.getByTestId("start-button").click();
+    await page.getByTestId("tap-button").click();
+    await page.getByTestId("tap-button").click();
+    await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(2);
+    await expect(page.getByTestId("stop-button")).toBeVisible();
+
+    // Try to replace the plan with a valid new schedule mid-rehearsal.
+    await page.getByTestId("schedule-input").fill("新计划|5\n再一行|90");
+    await page.getByTestId("import-button").click();
+
+    // The rejection explains why; the run is still active with both taps and
+    // the original schedule untouched.
+    const errors = page.getByTestId("import-errors");
+    await expect(errors).toBeVisible();
+    await expect(errors).toContainText("联排进行中");
+    await expect(errors).toContainText("请先结束联排");
+    await expect(page.getByTestId("stop-button")).toBeVisible();
+    await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(2);
+    const rows = page.getByTestId("schedule-table").locator("tbody tr");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText("开场");
+  });
+
+  test("adjacent large integers are accepted and rendered exactly", async ({
+    page,
+  }) => {    // These two adjacent values are indistinguishable to a float; the
     // import must not falsely flag them as duplicate times.
     const first = "9007199254740993";
     const second = "9007199254740994";

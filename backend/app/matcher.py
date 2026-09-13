@@ -43,10 +43,15 @@ class MatchTap(BaseModel):
 
 
 class Anchor(BaseModel):
-    """One paired row (cue index + tap index) chosen as the anchor."""
+    """One paired row (cue index + tap index) chosen as the anchor.
 
-    cue_index: int = Field(ge=0)
-    tap_index: int = Field(ge=0)
+    No ``ge=0`` bound here on purpose: a negative index is an out-of-range
+    anchor and must be rejected with the same ANCHOR_INDEX_OUT_OF_RANGE
+    reason (400) as an oversized index, rather than a generic Pydantic 422.
+    """
+
+    cue_index: int
+    tap_index: int
 
 
 class Pair(BaseModel):

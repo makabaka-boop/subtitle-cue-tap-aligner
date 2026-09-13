@@ -16,6 +16,8 @@ const ERROR_MESSAGES: Record<ParseErrorCode, string> = {
   INVALID_TIME: "时间必须为整数毫秒",
   NEGATIVE_TIME: "时间不得为负",
   NOT_STRICTLY_INCREASING: "各行时间必须严格递增、不得重复",
+  REHEARSAL_IN_PROGRESS:
+    "联排进行中：请先结束联排再重新导入计划，本次操作未改动已记录的敲击",
 };
 
 const INTEGER_RE = /^[+-]?\d+$/;

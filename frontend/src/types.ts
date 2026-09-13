@@ -15,7 +15,9 @@ export type ParseErrorCode =
   | "EMPTY_SUBTITLE"
   | "INVALID_TIME"
   | "NEGATIVE_TIME"
-  | "NOT_STRICTLY_INCREASING";
+  | "NOT_STRICTLY_INCREASING"
+  // Client-side only: never sent by the server.
+  | "REHEARSAL_IN_PROGRESS";
 
 export interface LineError {
   line: number;

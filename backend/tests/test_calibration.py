@@ -128,6 +128,17 @@ def test_reject_anchor_index_out_of_range():
     assert exc.value.error.code is AnchorErrorCode.ANCHOR_INDEX_OUT_OF_RANGE
 
 
+def test_reject_negative_anchor_indices_as_out_of_range():
+    # 负数下标与过大下标一样属于越界，而不是构造/校验阶段的通用错误。
+    cues = cue(("A", 0), ("B", 1000))
+    taps = tap([0, 1000])
+    for cue_index, tap_index in ((-1, 0), (0, -1), (-1, -1)):
+        anchor = Anchor(cue_index=cue_index, tap_index=tap_index)
+        with pytest.raises(AnchorRejected) as exc:
+            match_with_anchor(cues, taps, [anchor])
+        assert exc.value.error.code is AnchorErrorCode.ANCHOR_INDEX_OUT_OF_RANGE
+
+
 def test_reject_anchor_that_is_not_a_raw_pair():
     cues = cue(("A", 0), ("B", 5000))
     taps = tap([0, 100])  # tap1 未配对

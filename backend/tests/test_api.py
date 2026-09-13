@@ -183,6 +183,28 @@ def test_anchor_out_of_range_is_rejected_with_400():
     assert detail["message"]
 
 
+def test_negative_anchor_indices_are_rejected_like_other_out_of_range():
+    # Negative cue/tap indices must surface the same 400 with the Chinese
+    # anchor reason, not a generic English 422 validation error.
+    for anchor in (
+        {"cue_index": -1, "tap_index": 0},
+        {"cue_index": 0, "tap_index": -1},
+        {"cue_index": -2, "tap_index": -3},
+    ):
+        response = client.post(
+            "/api/match",
+            json={
+                "cues": [{"text": "A", "time_ms": 0}],
+                "taps": [{"time_ms": 0, "seq": 0}],
+                "anchors": [anchor],
+            },
+        )
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert detail["code"] == "ANCHOR_INDEX_OUT_OF_RANGE"
+        assert "未重新对点" in detail["message"]
+
+
 def test_duplicated_anchor_is_rejected_with_400():
     response = client.post(
         "/api/match",

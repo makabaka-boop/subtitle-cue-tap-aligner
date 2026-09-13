@@ -80,3 +80,25 @@ test("space key records taps during the run", async ({ page }) => {
     "0 ms",
   );
 });
+
+test("space in the schedule input edits text and never records a tap", async ({
+  page,
+}) => {
+  await importCues(page, "开场|0");
+  await page.getByTestId("start-button").click();
+
+  // Focus the plan textarea (focus is on the stop button after clicking
+  // start), clear the imported draft and type a subtitle containing spaces
+  // with the space bar.
+  const input = page.getByTestId("schedule-input");
+  await input.fill("");
+  await input.click();
+  await page.keyboard.type("字 幕 A|100");
+
+  await expect(input).toHaveValue("字 幕 A|100");
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+
+  // Global capture still works once focus leaves the text field.
+  await page.getByTestId("tap-button").click();
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(1);
+});

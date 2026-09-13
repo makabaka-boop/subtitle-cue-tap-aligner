@@ -48,6 +48,19 @@ export default function App() {
       if (event.code !== "Space" && event.key !== " ") {
         return;
       }
+      // While the operator is editing the schedule text (or any other
+      // field), Space must just type a space: never steal it for a tap and
+      // never prevent the default text editing behaviour.
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "INPUT" ||
+          target.tagName === "SELECT")
+      ) {
+        return;
+      }
       event.preventDefault();
       if (event.repeat) {
         return;
@@ -63,6 +76,20 @@ export default function App() {
   }, [running]);
 
   async function handleImport() {
+    // A rehearsal is in progress: importing a new plan would silently wipe
+    // the recorded taps, reset the first-hit clock and clear the result
+    // while the page still claims "联排中". Refuse before anything changes;
+    // the operator must stop the run first.
+    if (running && taps.length > 0) {
+      setImportErrors([
+        {
+          line: 0,
+          code: "REHEARSAL_IN_PROGRESS",
+          message: `联排进行中（已记录 ${taps.length} 次敲击）：请先结束联排再重新导入计划，本次操作未改动活动场次与已记录的敲击。`,
+        },
+      ]);
+      return;
+    }
     // Local mirror gives instant, line-located feedback. On any rejection we
     // return early without touching `cues` or the previous success note, so
     // an illegal import can never overwrite the last valid schedule.
