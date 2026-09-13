@@ -30,6 +30,15 @@ export default function App() {
   // current run's result page.
   const sessionRef = useRef(0);
 
+  // Import epoch: every import attempt — including one that is about to be
+  // refused locally or by the running-rehearsal guard — supersedes every
+  // earlier attempt, and starting a rehearsal supersedes whatever import is
+  // still in flight. A /api/parse response is applied only while its attempt
+  // is the latest one, so a late answer can neither replace a newer plan with
+  // an older one, nor wipe the active run's taps, nor overwrite the feedback
+  // (success note or line errors) of the attempt currently on screen.
+  const importSeqRef = useRef(0);
+
   const [result, setResult] = useState<MatchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [remoteError, setRemoteError] = useState("");
@@ -83,6 +92,11 @@ export default function App() {
   }, [running]);
 
   async function handleImport() {
+    // Supersede every earlier import request before anything else happens:
+    // whatever feedback this attempt produces (refusal, line errors, success)
+    // is the current state, and a late response from an older request must
+    // never clear or overwrite it.
+    const attempt = ++importSeqRef.current;
     // A rehearsal is active — even one that has just been started and has not
     // recorded a tap yet. Importing a new plan here would replace the cues and
     // reset the first-hit clock while the page still claims "联排中". Refuse
@@ -108,6 +122,14 @@ export default function App() {
 
     try {
       const server = await parseOnServer(draft);
+      if (importSeqRef.current !== attempt) {
+        // A newer import attempt — or a freshly started rehearsal — has
+        // superseded this request while the server was answering. Drop the
+        // late response untouched: applying it would replace the plan the
+        // operator has already moved on from (and clear the active run's
+        // taps) or erase the newer attempt's own feedback.
+        return;
+      }
       if (!server.valid) {
         setImportErrors(server.errors);
         return;
@@ -125,6 +147,12 @@ export default function App() {
       firstHitRef.current = null;
       setAnchorError("");
     } catch (error) {
+      if (importSeqRef.current !== attempt) {
+        // Stale failure: a newer attempt already owns the import area (its
+        // plan may have been imported successfully), so this old error must
+        // not appear next to it.
+        return;
+      }
       setImportErrors([
         {
           line: 0,
@@ -140,6 +168,9 @@ export default function App() {
     // (raw submission or anchor recalibration) still in flight for a previous
     // session, so a late answer cannot repopulate this run's empty result.
     sessionRef.current += 1;
+    // A run starting also retires any import still in flight: its late
+    // response would otherwise replace the plan and wipe this run's taps.
+    importSeqRef.current += 1;
     setRunning(true);
     setTaps([]);
     setResult(null);
