@@ -82,6 +82,35 @@ test.describe("schedule import", () => {
     await expect(rows.first()).toContainText("开场");
   });
 
+  test("import is refused while the run is active even before the first tap", async ({
+    page,
+  }) => {
+    await page.getByTestId("schedule-input").fill("开场|0\n主角|1200");
+    await page.getByTestId("import-button").click();
+    await expect(page.getByTestId("schedule-table")).toBeVisible();
+
+    // Start a rehearsal but do not tap anything.
+    await page.getByTestId("start-button").click();
+    await expect(page.getByTestId("stop-button")).toBeVisible();
+    await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+
+    // A valid new plan must not replace the active session's plan while the
+    // page still shows "联排中".
+    await page.getByTestId("schedule-input").fill("新计划|5\n再一行|90");
+    await page.getByTestId("import-button").click();
+
+    const errors = page.getByTestId("import-errors");
+    await expect(errors).toBeVisible();
+    await expect(errors).toContainText("联排进行中");
+    await expect(errors).toContainText("请先结束联排");
+    // The run is still the active session and the original schedule stands.
+    await expect(page.getByTestId("stop-button")).toBeVisible();
+    const rows = page.getByTestId("schedule-table").locator("tbody tr");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first()).toContainText("开场");
+    await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+  });
+
   test("adjacent large integers are accepted and rendered exactly", async ({
     page,
   }) => {    // These two adjacent values are indistinguishable to a float; the

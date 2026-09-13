@@ -23,6 +23,13 @@ export default function App() {
   const [taps, setTaps] = useState<RecordedTap[]>([]);
   const firstHitRef = useRef<number | null>(null);
 
+  // Session epoch: every (re)start — and every successful re-import — opens a
+  // new rehearsal session. A /api/match response (raw submit or anchor
+  // recalibration) is applied only when the session it was issued for is still
+  // active, so a late answer from a previous session can never repopulate the
+  // current run's result page.
+  const sessionRef = useRef(0);
+
   const [result, setResult] = useState<MatchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [remoteError, setRemoteError] = useState("");
@@ -76,11 +83,11 @@ export default function App() {
   }, [running]);
 
   async function handleImport() {
-    // A rehearsal is in progress: importing a new plan would silently wipe
-    // the recorded taps, reset the first-hit clock and clear the result
-    // while the page still claims "联排中". Refuse before anything changes;
-    // the operator must stop the run first.
-    if (running && taps.length > 0) {
+    // A rehearsal is active — even one that has just been started and has not
+    // recorded a tap yet. Importing a new plan here would replace the cues and
+    // reset the first-hit clock while the page still claims "联排中". Refuse
+    // before anything changes; the operator must stop the run first.
+    if (running) {
       setImportErrors([
         {
           line: 0,
@@ -106,10 +113,15 @@ export default function App() {
         return;
       }
       setImportErrors([]);
+      // A fresh plan opens a new session: any match response still in flight
+      // for the previous plan belongs to a dead session and must be dropped.
+      sessionRef.current += 1;
       setCues(server.cues);
       setImportNote(`已导入 ${server.cues.length} 行计划。`);
       setResult(null);
       setTaps([]);
+      setBusy(false);
+      setAnchorBusyCue(null);
       firstHitRef.current = null;
       setAnchorError("");
     } catch (error) {
@@ -124,9 +136,15 @@ export default function App() {
   }
 
   function handleStart() {
+    // New rehearsal session: the increment invalidates every match response
+    // (raw submission or anchor recalibration) still in flight for a previous
+    // session, so a late answer cannot repopulate this run's empty result.
+    sessionRef.current += 1;
     setRunning(true);
     setTaps([]);
     setResult(null);
+    setBusy(false);
+    setAnchorBusyCue(null);
     setRemoteError("");
     setAnchorError("");
     firstHitRef.current = null;
@@ -151,16 +169,27 @@ export default function App() {
     if (!cues) {
       return;
     }
+    // Pin the response to the session that issued it; if the operator starts
+    // a new run before the answer returns, it must be discarded.
+    const session = sessionRef.current;
     setBusy(true);
     setRemoteError("");
     setAnchorError("");
     try {
       const matched = await pairOnServer(cues, taps);
+      if (sessionRef.current !== session) {
+        return;
+      }
       setResult(matched);
     } catch (error) {
+      if (sessionRef.current !== session) {
+        return;
+      }
       setRemoteError((error as Error).message);
     } finally {
-      setBusy(false);
+      if (sessionRef.current === session) {
+        setBusy(false);
+      }
     }
   }
 
@@ -168,20 +197,30 @@ export default function App() {
     if (!cues || anchorBusyCue !== null) {
       return;
     }
+    const session = sessionRef.current;
     // On any rejection keep the current result exactly as it was and explain
     // the reason next to the operation; only a successful calibration swaps
-    // the table.
+    // the table. A recalibration whose session has since ended (operator moved
+    // on to a new run) is dropped, including its late error and spinner.
     setAnchorBusyCue(pair.cue_index);
     setAnchorError("");
     try {
       const recalibrated = await pairOnServer(cues, taps, [
         { cue_index: pair.cue_index, tap_index: pair.tap_index },
       ]);
+      if (sessionRef.current !== session) {
+        return;
+      }
       setResult(recalibrated);
     } catch (error) {
+      if (sessionRef.current !== session) {
+        return;
+      }
       setAnchorError((error as Error).message);
     } finally {
-      setAnchorBusyCue(null);
+      if (sessionRef.current === session) {
+        setAnchorBusyCue(null);
+      }
     }
   }
 

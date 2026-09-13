@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { holdNextMatchResponse } from "./networkGate";
 
 test.beforeEach(async ({ page }) => {
   // Deterministic monotonic clock: performance.now stays "sticky" at the
@@ -182,5 +183,53 @@ test("a rejected anchor keeps the current result and explains the reason", async
   await expect(page.getByTestId("calibration-note")).toHaveCount(0);
   await expect(page.getByTestId("pair-calibrated-deviation")).toHaveCount(0);
   // The operation stays available so the operator can pick another row.
+  await expect(page.getByTestId("set-anchor-button")).toHaveCount(1);
+});
+
+test("a recalibration response that arrives after the next run starts is dropped", async ({
+  page,
+}) => {
+  await importCues(page, "开场|0\n主角登场|1200\n第一段唱|2400\n谢幕|4000");
+  // Raw deviations [0, +250, +280, +240].
+  await driveRun(page, [0, 1450, 2680, 4240]);
+  await expect(page.getByTestId("set-anchor-button")).toHaveCount(4);
+
+  // Fire the anchor recalibration and hold its calibrated response.
+  const heldCalibration = holdNextMatchResponse(page, (body) =>
+    Array.isArray(body.anchors) && body.anchors.length > 0,
+  );
+  await page.getByTestId("set-anchor-button").nth(1).click();
+  const gate = await heldCalibration;
+
+  // Move on to the next rehearsal session before the calibration lands.
+  await page.getByTestId("start-button").click();
+  await expect(page.getByTestId("pairs-table")).toHaveCount(0);
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+
+  // The late calibration answer must not overwrite the new empty run.
+  gate.release();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("pairs-table")).toHaveCount(0);
+  await expect(page.getByTestId("calibration-note")).toHaveCount(0);
+  await expect(page.getByTestId("anchor-error")).toHaveCount(0);
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+
+  // The new session's own raw pairing renders normally and is uncalibrated.
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __tapQueue: number[];
+      __wantFresh: boolean;
+    };
+    w.__tapQueue.push(0);
+    w.__wantFresh = true;
+  });
+  await page.getByTestId("tap-button").dispatchEvent("pointerdown");
+  await page.getByTestId("stop-button").click();
+  await page.getByTestId("submit-button").click();
+
+  await expect(page.getByTestId("pairs-table")).toBeVisible();
+  await expect(page.getByTestId("pair-row")).toHaveCount(1);
+  await expect(page.getByTestId("calibration-note")).toHaveCount(0);
   await expect(page.getByTestId("set-anchor-button")).toHaveCount(1);
 });

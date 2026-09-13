@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { holdNextMatchResponse } from "./networkGate";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -101,4 +102,44 @@ test("space in the schedule input edits text and never records a tap", async ({
   // Global capture still works once focus leaves the text field.
   await page.getByTestId("tap-button").click();
   await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(1);
+});
+
+test("a pairing response that arrives after a new run starts is ignored", async ({
+  page,
+}) => {
+  await importCues(page, "旧场字幕|0\n另一条|400");
+
+  // Session 1: record a tap and submit, then hold the server response.
+  const firstSubmission = holdNextMatchResponse(page, (body) =>
+    Array.isArray(body.anchors) ? body.anchors.length === 0 : true,
+  );
+  await page.getByTestId("start-button").click();
+  await page.getByTestId("tap-button").click(); // 0 ms -> pairs cue 1
+  await page.getByTestId("stop-button").click();
+  await page.getByTestId("submit-button").click();
+  await expect(page.getByTestId("submit-button")).toContainText("提交中");
+  const gate = await firstSubmission;
+
+  // Before the answer returns, start a fresh, empty rehearsal session.
+  await page.getByTestId("start-button").click();
+  await expect(page.getByTestId("pairs-table")).toHaveCount(0);
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+
+  // Now the previous session's answer lands: it must not repopulate the page.
+  gate.release();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId("pairs-table")).toHaveCount(0);
+  await expect(page.getByTestId("tap-list").locator("li")).toHaveCount(0);
+  await expect(page.getByTestId("stop-button")).toBeVisible();
+
+  // The new session still works end to end: tap, stop, submit -> its own
+  // result, with no stale rows from session 1.
+  await page.getByTestId("tap-button").click();
+  await page.getByTestId("stop-button").click();
+  await page.getByTestId("submit-button").click();
+  const pairRows = page.getByTestId("pairs-table").locator(
+    "tr[data-testid='pair-row']",
+  );
+  await expect(pairRows).toHaveCount(1);
+  await expect(pairRows.first()).toContainText("旧场字幕");
 });
