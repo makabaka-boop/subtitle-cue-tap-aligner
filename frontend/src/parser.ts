@@ -32,7 +32,7 @@ export function parseSchedule(raw: string): ParseResponse {
     return { valid: false, errors: [lineError(1, "EMPTY_DOCUMENT")], cues: [] };
   }
 
-  let previousTime: number | null = null;
+  let previousTime: bigint | null = null;
 
   raw.split(/\r\n|\r|\n/).forEach((rawLine, i) => {
     const lineNumber = i + 1;
@@ -56,12 +56,12 @@ export function parseSchedule(raw: string): ParseResponse {
       lineErrors.push(lineError(lineNumber, "EMPTY_SUBTITLE"));
     }
 
-    let timeMs: number | null = null;
+    let timeMs: bigint | null = null;
     if (!INTEGER_RE.test(timeField)) {
       lineErrors.push(lineError(lineNumber, "INVALID_TIME"));
     } else {
-      const value = Number(timeField);
-      if (value < 0) {
+      const value = BigInt(timeField);
+      if (value < 0n) {
         lineErrors.push(lineError(lineNumber, "NEGATIVE_TIME"));
       } else {
         timeMs = value;

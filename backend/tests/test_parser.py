@@ -95,3 +95,19 @@ def test_crlf_line_endings_are_supported():
     response = parse_schedule("A|0\r\nB|100\r\n")
     assert response.valid
     assert len(response.cues) == 2
+
+
+def test_adjacent_huge_integers_stay_distinct_and_increasing():
+    # Values that would collapse into one double if parsed via float.
+    first = 9_007_199_254_740_993  # 2**53 + 1
+    second = first + 1
+    response = parse_schedule(f"甲|{first}\n乙|{second}")
+    assert response.valid
+    assert [cue.time_ms for cue in response.cues] == [first, second]
+
+
+def test_exact_duplicate_huge_integer_is_still_rejected():
+    big = 9_007_199_254_740_993
+    response = parse_schedule(f"甲|{big}\n乙|{big}")
+    grouped = codes_by_line(response)
+    assert grouped[2] == {ParseErrorCode.NOT_STRICTLY_INCREASING}

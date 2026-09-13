@@ -7,8 +7,8 @@ describe("parseSchedule", () => {
     const result = parseSchedule("第一幕|0\n 主角登场 | 1200 ");
     expect(result.valid).toBe(true);
     expect(result.cues).toEqual([
-      { text: "第一幕", time_ms: 0 },
-      { text: "主角登场", time_ms: 1200 },
+      { text: "第一幕", time_ms: 0n },
+      { text: "主角登场", time_ms: 1200n },
     ]);
   });
 
@@ -48,15 +48,39 @@ describe("parseSchedule", () => {
     expect(result.valid).toBe(false);
     expect(result.cues).toEqual([]);
   });
+
+  it("accepts adjacent large integers as strictly increasing", () => {
+    // These two values are indistinguishable in double precision; only
+    // exact (bigint) comparison sees them as distinct and increasing.
+    const a = "9007199254740993"; // 2^53 + 1
+    const b = "9007199254740994"; // 2^53 + 2
+    const result = parseSchedule(`甲|${a}\n乙|${b}`);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.cues[0].time_ms).toBe(BigInt(a));
+    expect(result.cues[1].time_ms).toBe(BigInt(b));
+  });
+
+  it("still rejects true duplicates beyond double-safe range", () => {
+    const big = "9007199254740993";
+    const result = parseSchedule(`甲|${big}\n乙|${big}`);
+    expect(result.valid).toBe(false);
+    expect(result.errors[0].code).toBe("NOT_STRICTLY_INCREASING");
+    expect(result.errors[0].line).toBe(2);
+  });
 });
 
 describe("formatSignedMs", () => {
   it("formats zero and positive values with an explicit plus sign", () => {
-    expect(formatSignedMs(0)).toBe("+0 ms");
-    expect(formatSignedMs(120)).toBe("+120 ms");
+    expect(formatSignedMs(0n)).toBe("+0 ms");
+    expect(formatSignedMs(120n)).toBe("+120 ms");
   });
 
   it("keeps the minus sign for negative values", () => {
-    expect(formatSignedMs(-800)).toBe("-800 ms");
+    expect(formatSignedMs(-800n)).toBe("-800 ms");
+  });
+
+  it("prints large values without exponential notation", () => {
+    expect(formatSignedMs(9007199254740993n)).toBe("+9007199254740993 ms");
   });
 });

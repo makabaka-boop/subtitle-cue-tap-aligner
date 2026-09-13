@@ -28,6 +28,15 @@ export default function App() {
 
   // Space-bar capture with the browser monotonic clock. Every tap is the
   // integer-ms distance from the first tap, so the first tap is always 0.
+  // Values are bigints end-to-end so arbitrarily large schedule times stay
+  // exact (a double cannot distinguish adjacent values past 2^53).
+  function elapsedSinceFirst(now: number): bigint {
+    if (firstHitRef.current === null) {
+      firstHitRef.current = now;
+    }
+    return BigInt(Math.round(now - firstHitRef.current));
+  }
+
   useEffect(() => {
     if (!running) {
       return;
@@ -40,11 +49,7 @@ export default function App() {
       if (event.repeat) {
         return;
       }
-      const now = performance.now();
-      if (firstHitRef.current === null) {
-        firstHitRef.current = now;
-      }
-      const timeMs = Math.round(now - firstHitRef.current);
+      const timeMs = elapsedSinceFirst(performance.now());
       setTaps((previous) => [
         ...previous,
         { time_ms: timeMs, seq: previous.length },
@@ -103,11 +108,7 @@ export default function App() {
     if (!running) {
       return;
     }
-    const now = performance.now();
-    if (firstHitRef.current === null) {
-      firstHitRef.current = now;
-    }
-    const timeMs = Math.round(now - firstHitRef.current);
+    const timeMs = elapsedSinceFirst(performance.now());
     setTaps((previous) => [
       ...previous,
       { time_ms: timeMs, seq: previous.length },
@@ -191,7 +192,7 @@ export default function App() {
                 <tr key={index}>
                   <td>{index + 1}</td>
                   <td>{cue.text}</td>
-                  <td>{cue.time_ms}</td>
+                  <td>{cue.time_ms.toString()}</td>
                 </tr>
               ))}
             </tbody>
@@ -240,7 +241,7 @@ export default function App() {
         <ul className="taps" data-testid="tap-list">
           {taps.map((tap) => (
             <li key={tap.seq}>
-              第 {tap.seq + 1} 击：相对首击 {tap.time_ms} ms
+              第 {tap.seq + 1} 击：相对首击 {tap.time_ms.toString()} ms
             </li>
           ))}
         </ul>
@@ -270,9 +271,9 @@ export default function App() {
                 <tr key={pair.cue_index} data-testid="pair-row">
                   <td>{pair.cue_index + 1}</td>
                   <td>{pair.cue_text}</td>
-                  <td>{pair.cue_time_ms} ms</td>
+                  <td>{pair.cue_time_ms.toString()} ms</td>
                   <td>第 {pair.tap_seq + 1} 击</td>
-                  <td>{pair.tap_time_ms} ms</td>
+                  <td>{pair.tap_time_ms.toString()} ms</td>
                   <td data-testid="pair-deviation">
                     {formatSignedMs(pair.deviation_ms)}
                   </td>
@@ -294,7 +295,8 @@ export default function App() {
               <ul data-testid="unpaired-cues">
                 {result.unmatched_cue_indices.map((index) => (
                   <li key={index}>
-                    第 {index + 1} 行：{cues[index].text}（{cues[index].time_ms} ms）
+                    第 {index + 1} 行：{cues[index].text}（
+                    {cues[index].time_ms.toString()} ms）
                   </li>
                 ))}
                 {result.unmatched_cue_indices.length === 0 && (
@@ -307,7 +309,7 @@ export default function App() {
               <ul data-testid="unpaired-taps">
                 {result.unmatched_tap_indices.map((index) => (
                   <li key={index}>
-                    第 {taps[index].seq + 1} 击（{taps[index].time_ms} ms）
+                    第 {taps[index].seq + 1} 击（{taps[index].time_ms.toString()} ms）
                   </li>
                 ))}
                 {result.unmatched_tap_indices.length === 0 && (

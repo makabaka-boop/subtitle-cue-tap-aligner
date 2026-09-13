@@ -97,6 +97,23 @@ def test_empty_inputs():
     }
 
 
+def test_matching_works_exactly_with_huge_times():
+    base = 9_007_199_254_740_993  # 2**53 + 1, beyond double-safe range
+    result = match(
+        cue(("A", base), ("B", base + 2000)),
+        [
+            MatchTap(time_ms=base + 120, seq=0),
+            MatchTap(time_ms=base + 2000 - 10, seq=1),
+        ],
+    )
+    assert [(p.cue_index, p.deviation_ms) for p in result.pairs] == [
+        (0, 120),
+        (1, -10),
+    ]
+    assert result.unmatched_cue_indices == []
+    assert result.unmatched_tap_indices == []
+
+
 def test_tie_between_cues_uses_earlier_time_not_list_order():
     # Earlier cue listed second in input: tie-break must still choose t=900.
     cues = [MatchCue(text="late", time_ms=1100), MatchCue(text="early", time_ms=900)]

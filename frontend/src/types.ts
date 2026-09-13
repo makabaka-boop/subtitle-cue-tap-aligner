@@ -2,7 +2,10 @@ export const TOLERANCE_MS = 800;
 
 export interface Cue {
   text: string;
-  time_ms: number;
+  // bigint: adjacent large millisecond values must compare exactly; a JS
+  // double would round 9007199254740993 to 9007199254740992 and falsely
+  // report a duplicate. The API carries these as exact JSON integers.
+  time_ms: bigint;
 }
 
 export type ParseErrorCode =
@@ -27,18 +30,18 @@ export interface ParseResponse {
 }
 
 export interface RecordedTap {
-  time_ms: number;
+  time_ms: bigint;
   seq: number;
 }
 
 export interface Pair {
   cue_index: number;
   cue_text: string;
-  cue_time_ms: number;
+  cue_time_ms: bigint;
   tap_index: number;
   tap_seq: number;
-  tap_time_ms: number;
-  deviation_ms: number;
+  tap_time_ms: bigint;
+  deviation_ms: bigint;
 }
 
 export interface MatchResult {

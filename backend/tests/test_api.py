@@ -82,3 +82,26 @@ def test_match_endpoint_rejects_negative_taps():
         json={"cues": [], "taps": [{"time_ms": -1, "seq": 0}]},
     )
     assert response.status_code == 422
+
+
+def test_huge_times_round_trip_as_exact_json_integers():
+    base = 9_007_199_254_740_993  # 2**53 + 1
+    parsed = client.post(
+        "/api/parse", json={"text": f"甲|{base}\n乙|{base + 1}"}
+    ).json()
+    assert parsed["valid"] is True
+    assert parsed["cues"][0]["time_ms"] == base
+    assert parsed["cues"][1]["time_ms"] == base + 1
+
+    matched = client.post(
+        "/api/match",
+        json={
+            "cues": parsed["cues"],
+            "taps": [{"time_ms": base + 1, "seq": 0}],
+        },
+    )
+    assert matched.status_code == 200
+    body = matched.json()
+    assert body["pairs"][0]["cue_index"] == 1
+    assert body["pairs"][0]["deviation_ms"] == 0
+    assert body["pairs"][0]["cue_time_ms"] == base + 1
