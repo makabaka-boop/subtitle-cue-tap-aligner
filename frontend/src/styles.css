@@ -100,6 +100,21 @@ th {
   background: #eef2f6;
 }
 
+tr.anchor-row {
+  background: #eef7f0;
+}
+
+.anchor-badge {
+  display: inline-block;
+  font-size: 0.85rem;
+  color: #1c6b3c;
+  border: 1px solid #9ec9ad;
+  background: #e7f4ec;
+  border-radius: 999px;
+  padding: 2px 10px;
+  white-space: nowrap;
+}
+
 .taps {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.9rem;

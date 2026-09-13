@@ -34,6 +34,16 @@ export interface RecordedTap {
   seq: number;
 }
 
+export interface Anchor {
+  cue_index: number;
+  tap_index: number;
+}
+
+export type AnchorErrorCode =
+  | "ANCHOR_INDEX_OUT_OF_RANGE"
+  | "ANCHOR_DUPLICATED"
+  | "ANCHOR_NOT_PAIRED";
+
 export interface Pair {
   cue_index: number;
   cue_text: string;
@@ -42,10 +52,18 @@ export interface Pair {
   tap_seq: number;
   tap_time_ms: bigint;
   deviation_ms: bigint;
+  // Present only on calibrated (anchor) responses.
+  calibrated_tap_time_ms?: bigint;
+  calibrated_deviation_ms?: bigint;
 }
 
 export interface MatchResult {
   pairs: Pair[];
   unmatched_cue_indices: number[];
   unmatched_tap_indices: number[];
+  // Present only when the result was produced with a calibration anchor.
+  calibrated?: boolean;
+  offset_ms?: bigint;
+  anchor_cue_index?: number;
+  anchor_tap_index?: number;
 }

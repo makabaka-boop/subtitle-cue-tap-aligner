@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 
 WEB_BASE = os.environ.get("PLAYWRIGHT_BASE_URL", "http://web:80").rstrip("/")
@@ -25,6 +26,12 @@ def request(method: str, url: str, payload: dict) -> dict:
     )
     with urllib.request.urlopen(req, timeout=5) as response:
         return json.load(response)
+
+
+def parse_from(text: str) -> list[dict]:
+    parsed = request("POST", f"{WEB_BASE}/api/parse", {"text": text})
+    assert parsed["valid"] is True, parsed
+    return parsed["cues"]
 
 
 def main() -> None:
@@ -57,6 +64,133 @@ def main() -> None:
     assert pair["deviation_ms"] == 0
     assert matched["unmatched_cue_indices"] == [1, 2]
     assert matched["unmatched_tap_indices"] == [1]
+
+    # Legacy request shape: no calibration fields are present at all.
+    assert "calibrated" not in matched and "offset_ms" not in matched
+    assert set(matched["pairs"][0]) == {
+        "cue_index",
+        "cue_text",
+        "cue_time_ms",
+        "tap_index",
+        "tap_seq",
+        "tap_time_ms",
+        "deviation_ms",
+    }
+
+    # A full rehearsal with a stable +250 ms global start offset (and a
+    # little jitter): every raw deviation is ~250 ms. Calibrating on the
+    # second row pins its calibrated deviation to exactly 0 and re-pairs the
+    # rest by the existing rule.
+    run_cues = parse_from(
+        "一|0\n二|1200\n三|2400\n四|4000"
+    )
+    run_taps = [
+        {"time_ms": 210, "seq": 0},
+        {"time_ms": 1450, "seq": 1},
+        {"time_ms": 2680, "seq": 2},
+        {"time_ms": 4240, "seq": 3},
+    ]
+    raw_run = request("POST", f"{WEB_BASE}/api/match", {"cues": run_cues, "taps": run_taps})
+    assert [p["deviation_ms"] for p in raw_run["pairs"]] == [210, 250, 280, 240]
+    calibrated = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": run_cues,
+            "taps": run_taps,
+            "anchors": [{"cue_index": 1, "tap_index": 1}],
+        },
+    )
+    assert calibrated["calibrated"] is True
+    assert calibrated["offset_ms"] == 250
+    assert calibrated["anchor_cue_index"] == 1
+    assert calibrated["anchor_tap_index"] == 1
+    assert [p["calibrated_deviation_ms"] for p in calibrated["pairs"]] == [
+        -40,
+        0,
+        30,
+        -10,
+    ]
+    anchor_pair = calibrated["pairs"][1]
+    assert anchor_pair["calibrated_tap_time_ms"] == 1200
+    assert anchor_pair["deviation_ms"] == 250  # raw fields preserved
+
+    # A tap that was out of range raw can come inside the 800 ms window.
+    rescue_cues = parse_from("一|0\n二|2000")
+    rescue_taps = [{"time_ms": 100, "seq": 0}, {"time_ms": 2900, "seq": 1}]
+    rescue = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": rescue_cues,
+            "taps": rescue_taps,
+            "anchors": [{"cue_index": 0, "tap_index": 0}],
+        },
+    )
+    assert rescue["offset_ms"] == 100
+    assert [p["calibrated_deviation_ms"] for p in rescue["pairs"]] == [0, 800]
+
+    # Invalid anchors are rejected with 400 and leave it to the client to
+    # keep its current result.
+    def rejected(payload, code):
+        try:
+            request("POST", f"{WEB_BASE}/api/match", payload)
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 400, exc.code
+            detail = json.load(exc)["detail"]
+            assert detail["code"] == code, detail
+            assert detail["message"], detail
+            return
+        raise AssertionError(f"expected rejection {code}")
+
+    rejected(
+        {
+            "cues": run_cues,
+            "taps": run_taps,
+            "anchors": [{"cue_index": 99, "tap_index": 0}],
+        },
+        "ANCHOR_INDEX_OUT_OF_RANGE",
+    )
+    rejected(
+        {
+            "cues": run_cues,
+            "taps": run_taps,
+            "anchors": [
+                {"cue_index": 0, "tap_index": 0},
+                {"cue_index": 1, "tap_index": 1},
+            ],
+        },
+        "ANCHOR_DUPLICATED",
+    )
+    rejected(
+        {
+            "cues": cues,
+            "taps": taps,
+            "anchors": [{"cue_index": 1, "tap_index": 1}],
+        },
+        "ANCHOR_NOT_PAIRED",
+    )
+
+    # Huge-integer times: the calibrated times and offset stay exact.
+    shift = 9_007_199_254_740_993 + 12_345
+    huge_cues = parse_from(f"甲|{shift}\n乙|{shift + 1_000_000}")
+    huge_taps = [
+        {"time_ms": shift - 800, "seq": 0},
+        {"time_ms": shift + 1_000_000 - 800, "seq": 1},
+    ]
+    huge = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": huge_cues,
+            "taps": huge_taps,
+            "anchors": [{"cue_index": 0, "tap_index": 0}],
+        },
+    )
+    assert huge["offset_ms"] == -800
+    assert huge["pairs"][0]["calibrated_tap_time_ms"] == shift
+    assert huge["pairs"][0]["calibrated_deviation_ms"] == 0
+    assert huge["pairs"][1]["calibrated_deviation_ms"] == 0
 
     print("smoke check passed")
 

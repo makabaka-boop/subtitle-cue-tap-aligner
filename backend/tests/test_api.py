@@ -105,3 +105,140 @@ def test_huge_times_round_trip_as_exact_json_integers():
     assert body["pairs"][0]["cue_index"] == 1
     assert body["pairs"][0]["deviation_ms"] == 0
     assert body["pairs"][0]["cue_time_ms"] == base + 1
+
+
+def test_request_without_anchor_returns_exactly_the_legacy_shape():
+    payload = {
+        "cues": [
+            {"text": "A", "time_ms": 0},
+            {"text": "B", "time_ms": 1000},
+        ],
+        "taps": [{"time_ms": 100, "seq": 0}, {"time_ms": 1100, "seq": 1}],
+    }
+    body = client.post("/api/match", json=payload).json()
+    assert set(body) == {
+        "pairs",
+        "unmatched_cue_indices",
+        "unmatched_tap_indices",
+    }
+    assert set(body["pairs"][0]) == {
+        "cue_index",
+        "cue_text",
+        "cue_time_ms",
+        "tap_index",
+        "tap_seq",
+        "tap_time_ms",
+        "deviation_ms",
+    }
+    # Explicit empty anchors list behaves identically.
+    body_empty = client.post(
+        "/api/match", json={**payload, "anchors": []}
+    ).json()
+    assert body_empty == body
+
+
+def test_anchor_calibrates_the_whole_run_and_reports_offset():
+    base = 9_007_199_254_740_993  # 2**53 + 1
+    response = client.post(
+        "/api/match",
+        json={
+            "cues": [
+                {"text": "甲", "time_ms": base},
+                {"text": "乙", "time_ms": base + 2_000_000},
+            ],
+            "taps": [
+                {"time_ms": base + 150, "seq": 0},
+                {"time_ms": base + 2_000_000 + 150, "seq": 1},
+            ],
+            "anchors": [{"cue_index": 0, "tap_index": 0}],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["calibrated"] is True
+    assert body["offset_ms"] == 150
+    assert body["anchor_cue_index"] == 0
+    assert body["anchor_tap_index"] == 0
+    anchor = body["pairs"][0]
+    assert anchor["deviation_ms"] == 150  # raw deviation kept
+    assert anchor["calibrated_tap_time_ms"] == base
+    assert anchor["calibrated_deviation_ms"] == 0
+    other = body["pairs"][1]
+    assert other["calibrated_tap_time_ms"] == base + 2_000_000
+    assert other["calibrated_deviation_ms"] == 0
+
+
+def test_anchor_out_of_range_is_rejected_with_400():
+    response = client.post(
+        "/api/match",
+        json={
+            "cues": [{"text": "A", "time_ms": 0}],
+            "taps": [{"time_ms": 0, "seq": 0}],
+            "anchors": [{"cue_index": 9, "tap_index": 0}],
+        },
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "ANCHOR_INDEX_OUT_OF_RANGE"
+    assert detail["message"]
+
+
+def test_duplicated_anchor_is_rejected_with_400():
+    response = client.post(
+        "/api/match",
+        json={
+            "cues": [
+                {"text": "A", "time_ms": 0},
+                {"text": "B", "time_ms": 1000},
+            ],
+            "taps": [{"time_ms": 0, "seq": 0}, {"time_ms": 1000, "seq": 1}],
+            "anchors": [
+                {"cue_index": 0, "tap_index": 0},
+                {"cue_index": 1, "tap_index": 1},
+            ],
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "ANCHOR_DUPLICATED"
+
+
+def test_anchor_not_in_raw_pairing_is_rejected_with_400():
+    response = client.post(
+        "/api/match",
+        json={
+            "cues": [
+                {"text": "A", "time_ms": 0},
+                {"text": "B", "time_ms": 9000},
+            ],
+            "taps": [{"time_ms": 0, "seq": 0}, {"time_ms": 200, "seq": 1}],
+            # cue 2 is never paired; tap 2 is unmatched too.
+            "anchors": [{"cue_index": 1, "tap_index": 1}],
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "ANCHOR_NOT_PAIRED"
+
+
+def test_huge_integer_offset_is_computed_exactly_over_http():
+    shift = 9_007_199_254_740_993 + 12_345  # beyond double-safe range
+    response = client.post(
+        "/api/match",
+        json={
+            "cues": [
+                {"text": "甲", "time_ms": shift},
+                {"text": "乙", "time_ms": shift + 1_000_000},
+            ],
+            "taps": [
+                {"time_ms": shift - 800, "seq": 0},
+                {"time_ms": shift + 1_000_000 - 800, "seq": 1},
+            ],
+            "anchors": [{"cue_index": 0, "tap_index": 0}],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["offset_ms"] == -800
+    assert body["pairs"][0]["calibrated_tap_time_ms"] == shift
+    assert body["pairs"][0]["calibrated_deviation_ms"] == 0
+    assert body["pairs"][1]["calibrated_deviation_ms"] == 0
+

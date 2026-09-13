@@ -6,6 +6,7 @@ import type {
   Cue,
   LineError,
   MatchResult,
+  Pair,
   RecordedTap,
 } from "./types";
 import "./styles.css";
@@ -25,6 +26,8 @@ export default function App() {
   const [result, setResult] = useState<MatchResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [remoteError, setRemoteError] = useState("");
+  const [anchorBusyCue, setAnchorBusyCue] = useState<number | null>(null);
+  const [anchorError, setAnchorError] = useState("");
 
   // Space-bar capture with the browser monotonic clock. Every tap is the
   // integer-ms distance from the first tap, so the first tap is always 0.
@@ -81,6 +84,7 @@ export default function App() {
       setResult(null);
       setTaps([]);
       firstHitRef.current = null;
+      setAnchorError("");
     } catch (error) {
       setImportErrors([
         {
@@ -97,6 +101,7 @@ export default function App() {
     setTaps([]);
     setResult(null);
     setRemoteError("");
+    setAnchorError("");
     firstHitRef.current = null;
   }
 
@@ -121,6 +126,7 @@ export default function App() {
     }
     setBusy(true);
     setRemoteError("");
+    setAnchorError("");
     try {
       const matched = await pairOnServer(cues, taps);
       setResult(matched);
@@ -128,6 +134,27 @@ export default function App() {
       setRemoteError((error as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleSetAnchor(pair: Pair) {
+    if (!cues || anchorBusyCue !== null) {
+      return;
+    }
+    // On any rejection keep the current result exactly as it was and explain
+    // the reason next to the operation; only a successful calibration swaps
+    // the table.
+    setAnchorBusyCue(pair.cue_index);
+    setAnchorError("");
+    try {
+      const recalibrated = await pairOnServer(cues, taps, [
+        { cue_index: pair.cue_index, tap_index: pair.tap_index },
+      ]);
+      setResult(recalibrated);
+    } catch (error) {
+      setAnchorError((error as Error).message);
+    } finally {
+      setAnchorBusyCue(null);
     }
   }
 
@@ -255,6 +282,15 @@ export default function App() {
       {result && cues && (
         <section className="card" aria-label="对点结果">
           <h2>3. 对点结果</h2>
+          {result.calibrated && (
+            <p className="note" data-testid="calibration-note">
+              已按校准锚点（第 {(result.anchor_cue_index ?? 0) + 1}{" "}
+              行计划）重新对点：全场校准量{" "}
+              {formatSignedMs(result.offset_ms ?? 0n)}
+              （锚点原始敲击−计划时间；其余敲击已整体减去该量）。锚点行校准后偏差为{" "}
+              {formatSignedMs(0n)}。
+            </p>
+          )}
           <table data-testid="pairs-table">
             <thead>
               <tr>
@@ -264,30 +300,89 @@ export default function App() {
                 <th>敲击序号</th>
                 <th>敲击时间</th>
                 <th>偏差（敲击−计划）</th>
+                {result.calibrated && <th>校准后敲击时间</th>}
+                {result.calibrated && <th>校准后偏差</th>}
+                <th>校准操作</th>
               </tr>
             </thead>
             <tbody>
-              {result.pairs.map((pair) => (
-                <tr key={pair.cue_index} data-testid="pair-row">
-                  <td>{pair.cue_index + 1}</td>
-                  <td>{pair.cue_text}</td>
-                  <td>{pair.cue_time_ms.toString()} ms</td>
-                  <td>第 {pair.tap_seq + 1} 击</td>
-                  <td>{pair.tap_time_ms.toString()} ms</td>
-                  <td data-testid="pair-deviation">
-                    {formatSignedMs(pair.deviation_ms)}
-                  </td>
-                </tr>
-              ))}
+              {result.pairs.map((pair) => {
+                const isAnchor =
+                  result.calibrated &&
+                  pair.cue_index === result.anchor_cue_index &&
+                  pair.tap_index === result.anchor_tap_index;
+                return (
+                  <tr
+                    key={pair.cue_index}
+                    data-testid="pair-row"
+                    className={isAnchor ? "anchor-row" : undefined}
+                  >
+                    <td>{pair.cue_index + 1}</td>
+                    <td>{pair.cue_text}</td>
+                    <td>{pair.cue_time_ms.toString()} ms</td>
+                    <td>第 {pair.tap_seq + 1} 击</td>
+                    <td>{pair.tap_time_ms.toString()} ms</td>
+                    <td data-testid="pair-deviation">
+                      {formatSignedMs(pair.deviation_ms)}
+                    </td>
+                    {result.calibrated && (
+                      <td data-testid="pair-calibrated-time">
+                        {(pair.calibrated_tap_time_ms ?? 0n).toString()} ms
+                      </td>
+                    )}
+                    {result.calibrated && (
+                      <td data-testid="pair-calibrated-deviation">
+                        {formatSignedMs(pair.calibrated_deviation_ms ?? 0n)}
+                      </td>
+                    )}
+                    <td>
+                      {result.calibrated ? (
+                        isAnchor ? (
+                          <span
+                            className="anchor-badge"
+                            data-testid="anchor-badge"
+                          >
+                            校准锚点（锁定）
+                          </span>
+                        ) : (
+                          <span className="hint">已按锚点重算</span>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          data-testid="set-anchor-button"
+                          onClick={() => handleSetAnchor(pair)}
+                          disabled={anchorBusyCue !== null}
+                        >
+                          {anchorBusyCue === pair.cue_index
+                            ? "校准中…"
+                            : "设为校准锚点"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {result.pairs.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="hint">
+                  <td colSpan={result.calibrated ? 9 : 7} className="hint">
                     没有任何敲击落在计划时间的 800 ms 范围内。
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          {anchorError && (
+            <p className="errors" data-testid="anchor-error">
+              {anchorError}
+            </p>
+          )}
+          {!result.calibrated && (
+            <p className="hint">
+              若全场敲击相对计划存在稳定起步偏移，可任选一行已配对行作为校准锚点，
+              服务端将锁定该锚点，按其原始偏差平移全场敲击后重新对点。
+            </p>
+          )}
 
           <div className="columns">
             <div>
