@@ -68,6 +68,7 @@ def main() -> None:
     # Legacy request shape: no calibration fields are present at all.
     assert "calibrated" not in matched and "offset_ms" not in matched
     assert "ignored_tap_indices" not in matched
+    assert "tolerance_ms" not in matched
     assert set(matched["pairs"][0]) == {
         "cue_index",
         "cue_text",
@@ -121,6 +122,82 @@ def main() -> None:
     )
     assert restored == raw_mistap
     assert "ignored_tap_indices" not in restored
+
+    # Pairing tolerance: one rehearsal with a 900 ms deviation and one
+    # mistap. The default 800 ms window leaves the 900 ms hit unpaired;
+    # widening to 1000 ms pairs it, while the ignored mistap (600 ms from
+    # the same cue) stays out of the pairing.
+    wide_cues = parse_from("开场|0\n谢幕|2000")
+    wide_taps = [
+        {"time_ms": 0, "seq": 0},
+        {"time_ms": 2600, "seq": 1},
+        {"time_ms": 2900, "seq": 2},
+    ]
+    default_window = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {"cues": wide_cues, "taps": wide_taps, "ignored_tap_indices": [1]},
+    )
+    assert [(p["cue_index"], p["tap_index"]) for p in default_window["pairs"]] == [
+        (0, 0)
+    ]
+    assert default_window["unmatched_tap_indices"] == [2]
+    assert default_window["ignored_tap_indices"] == [1]
+    assert "tolerance_ms" not in default_window
+
+    widened = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "ignored_tap_indices": [1],
+            "tolerance_ms": 1000,
+        },
+    )
+    assert widened["tolerance_ms"] == 1000
+    assert [
+        (p["cue_index"], p["tap_index"], p["deviation_ms"])
+        for p in widened["pairs"]
+    ] == [(0, 0, 0), (1, 2, 900)]
+    assert widened["ignored_tap_indices"] == [1]
+    assert widened["unmatched_tap_indices"] == []
+    assert widened["unmatched_cue_indices"] == []
+
+    # The anchor recalculation reuses the same window: calibrated to -900 ms,
+    # the first hit stays paired only under the 1000 ms tolerance.
+    widened_anchor = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "ignored_tap_indices": [1],
+            "tolerance_ms": 1000,
+            "anchors": [{"cue_index": 1, "tap_index": 2}],
+        },
+    )
+    assert widened_anchor["calibrated"] is True
+    assert widened_anchor["tolerance_ms"] == 1000
+    assert widened_anchor["offset_ms"] == 900
+    assert widened_anchor["ignored_tap_indices"] == [1]
+    assert [p["calibrated_deviation_ms"] for p in widened_anchor["pairs"]] == [
+        -900,
+        0,
+    ]
+
+    # A request without the field still pairs by the fixed 800 ms rule.
+    legacy_window = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {"cues": wide_cues, "taps": wide_taps},
+    )
+    assert "tolerance_ms" not in legacy_window
+    assert [(p["cue_index"], p["tap_index"]) for p in legacy_window["pairs"]] == [
+        (0, 0),
+        (1, 1),
+    ]
+    assert legacy_window["unmatched_tap_indices"] == [2]
 
     # Anchor recalibration carries the same ignored indices: the mistap stays
     # excluded, the anchor indices refer to the original tap list.
@@ -269,6 +346,40 @@ def main() -> None:
             "ignored_tap_indices": [-1],
         },
         "IGNORED_TAP_INDEX_OUT_OF_RANGE",
+    )
+    # Illegal tolerances are rejected with 400 and a Chinese reason; no new
+    # result is produced, so the client keeps its current pairing.
+    rejected(
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "tolerance_ms": 3000,
+        },
+        "TOLERANCE_OUT_OF_RANGE",
+    )
+    rejected(
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "tolerance_ms": 99,
+        },
+        "TOLERANCE_OUT_OF_RANGE",
+    )
+    rejected(
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "tolerance_ms": 800.5,
+        },
+        "TOLERANCE_NOT_INTEGER",
+    )
+    rejected(
+        {
+            "cues": wide_cues,
+            "taps": wide_taps,
+            "tolerance_ms": "abc",
+        },
+        "TOLERANCE_NOT_INTEGER",
     )
 
     # Huge-integer times: the calibrated times and offset stay exact.

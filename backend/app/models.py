@@ -51,3 +51,16 @@ IGNORED_TAP_ERROR_MESSAGES: dict[IgnoredTapErrorCode, str] = {
     IgnoredTapErrorCode.IGNORED_TAP_INDEX_OUT_OF_RANGE: "忽略下标超出本场敲击范围，未进行配对",
     IgnoredTapErrorCode.IGNORED_TAP_INDEX_DUPLICATED: "忽略下标重复：每个敲击下标至多出现一次，未进行配对",
 }
+
+
+class ToleranceErrorCode(StrEnum):
+    """Why a requested pairing tolerance was rejected."""
+
+    TOLERANCE_NOT_INTEGER = "TOLERANCE_NOT_INTEGER"
+    TOLERANCE_OUT_OF_RANGE = "TOLERANCE_OUT_OF_RANGE"
+
+
+TOLERANCE_ERROR_MESSAGES: dict[ToleranceErrorCode, str] = {
+    ToleranceErrorCode.TOLERANCE_NOT_INTEGER: "配对容差必须为整数毫秒，未进行配对",
+    ToleranceErrorCode.TOLERANCE_OUT_OF_RANGE: "配对容差必须在 100 至 2000 毫秒之间，未进行配对",
+}

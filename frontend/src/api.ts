@@ -52,6 +52,7 @@ function normalizeMatchResult(result: MatchResult): MatchResult {
     unmatched_cue_indices: result.unmatched_cue_indices,
     unmatched_tap_indices: result.unmatched_tap_indices,
     ignored_tap_indices: result.ignored_tap_indices,
+    tolerance_ms: result.tolerance_ms,
     calibrated: result.calibrated,
     offset_ms:
       result.offset_ms === undefined ? undefined : asBigInt(result.offset_ms),
@@ -101,6 +102,7 @@ export async function pairOnServer(
   taps: RecordedTap[],
   anchors?: Anchor[],
   ignoredTapIndices?: number[],
+  toleranceMs?: number | string,
 ): Promise<MatchResult> {
   const result = await postJSON<MatchResult>("/match", {
     cues: normalizeCues(cues),
@@ -113,6 +115,11 @@ export async function pairOnServer(
     ...(ignoredTapIndices && ignoredTapIndices.length > 0
       ? { ignored_tap_indices: ignoredTapIndices }
       : {}),
+    // Same for the tolerance: without it the request (and the response)
+    // stays the legacy shape and the server's fixed 800 ms window applies.
+    // A value the operator typed that does not parse to a number is sent
+    // as-is so the server can answer with its Chinese reason.
+    ...(toleranceMs !== undefined ? { tolerance_ms: toleranceMs } : {}),
   });
   return normalizeMatchResult(result);
 }

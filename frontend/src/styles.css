@@ -53,6 +53,18 @@ textarea {
   flex-wrap: wrap;
 }
 
+.tolerance-row {
+  align-items: center;
+  font-size: 0.95rem;
+}
+
+.tolerance-row input {
+  font-size: 0.95rem;
+  padding: 6px 8px;
+  border: 1px solid #b7c2ce;
+  border-radius: 6px;
+}
+
 button {
   font-size: 0.95rem;
   padding: 8px 14px;

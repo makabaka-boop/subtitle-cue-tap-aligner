@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { pairOnServer, parseOnServer } from "./api";
 import { formatSignedMs } from "./format";
 import { parseSchedule } from "./parser";
-import type {
-  Cue,
-  LineError,
-  MatchResult,
-  Pair,
-  RecordedTap,
+import {
+  MAX_TOLERANCE_MS,
+  MIN_TOLERANCE_MS,
+  TOLERANCE_MS,
+  type Cue,
+  type LineError,
+  type MatchResult,
+  type Pair,
+  type RecordedTap,
 } from "./types";
 import "./styles.css";
 
@@ -28,6 +31,12 @@ export default function App() {
   // anchor recalibration, so calibration only ever sees participating taps.
   // Original times and sequence numbers are never altered by ignoring.
   const [ignoredTaps, setIgnoredTaps] = useState<number[]>([]);
+
+  // Pairing tolerance for this session, in ms (100–2000). Kept as the raw
+  // input text so an entry the server rejects stays on screen for
+  // correction; the same value is sent on every submit and on every anchor
+  // recalibration, and the result area echoes what the server applied.
+  const [toleranceInput, setToleranceInput] = useState(String(TOLERANCE_MS));
 
   // Session epoch: every (re)start — and every successful re-import — opens a
   // new rehearsal session. A /api/match response (raw submit or anchor
@@ -215,6 +224,20 @@ export default function App() {
     ]);
   }
 
+  // The tolerance sent to the server: a number when the input parses as one
+  // (integral or not), otherwise the raw text. The server is the final
+  // authority on what is a legal tolerance — an illegal value comes back as
+  // a 400 with a Chinese reason, and the page keeps the input, the ignore
+  // selection and the current result for correction.
+  function tolerancePayload(): number | string {
+    const trimmed = toleranceInput.trim();
+    const asNumber = Number(trimmed);
+    if (trimmed !== "" && Number.isFinite(asNumber)) {
+      return asNumber;
+    }
+    return trimmed;
+  }
+
   async function handleSubmit() {
     if (!cues) {
       return;
@@ -226,7 +249,13 @@ export default function App() {
     setRemoteError("");
     setAnchorError("");
     try {
-      const matched = await pairOnServer(cues, taps, undefined, ignoredTaps);
+      const matched = await pairOnServer(
+        cues,
+        taps,
+        undefined,
+        ignoredTaps,
+        tolerancePayload(),
+      );
       if (sessionRef.current !== session) {
         return;
       }
@@ -235,8 +264,9 @@ export default function App() {
       if (sessionRef.current !== session) {
         return;
       }
-      // Rejected (e.g. illegal ignored indices): keep the current selection
-      // and the result already on screen so the operator can fix and retry.
+      // Rejected (e.g. illegal ignored indices or tolerance): keep the
+      // current selection and the result already on screen so the operator
+      // can fix and retry.
       setRemoteError((error as Error).message);
     } finally {
       if (sessionRef.current === session) {
@@ -257,13 +287,15 @@ export default function App() {
     setAnchorBusyCue(pair.cue_index);
     setAnchorError("");
     try {
-      // The recalibration carries the same ignored indices as the submit:
-      // calibration only processes the taps participating in this session.
+      // The recalibration carries the same ignored indices and the same
+      // tolerance as the submit: calibration only processes the taps
+      // participating in this session, under the same candidate window.
       const recalibrated = await pairOnServer(
         cues,
         taps,
         [{ cue_index: pair.cue_index, tap_index: pair.tap_index }],
         ignoredTaps,
+        tolerancePayload(),
       );
       if (sessionRef.current !== session) {
         return;
@@ -387,6 +419,22 @@ export default function App() {
             {busy ? "提交中…" : "提交配对"}
           </button>
         </div>
+        <div className="row tolerance-row">
+          <label htmlFor="tolerance-input">配对容差（ms）：</label>
+          <input
+            id="tolerance-input"
+            data-testid="tolerance-input"
+            type="text"
+            inputMode="decimal"
+            size={8}
+            value={toleranceInput}
+            onChange={(event) => setToleranceInput(event.target.value)}
+          />
+          <span className="hint">
+            整数，{MIN_TOLERANCE_MS}–{MAX_TOLERANCE_MS}
+            毫秒；默认 800。提交配对与锚点重算都使用该值，非法输入不会被采用。
+          </span>
+        </div>
         {running && <p className="hint">联排中：按空格键记录敲击，首击记为 0 ms。</p>}
         {!running && taps.length > 0 && (
           <p className="hint">
@@ -439,6 +487,10 @@ export default function App() {
       {result && cues && (
         <section className="card" aria-label="对点结果">
           <h2>3. 对点结果</h2>
+          <p className="note" data-testid="tolerance-note">
+            本次配对容差：{String(result.tolerance_ms ?? TOLERANCE_MS)}{" "}
+            ms（仅配对绝对偏差不超过该值的计划）。
+          </p>
           {result.calibrated && (
             <p className="note" data-testid="calibration-note">
               已按校准锚点（第 {(result.anchor_cue_index ?? 0) + 1}{" "}
@@ -523,7 +575,8 @@ export default function App() {
               {result.pairs.length === 0 && (
                 <tr>
                   <td colSpan={result.calibrated ? 9 : 7} className="hint">
-                    没有任何敲击落在计划时间的 800 ms 范围内。
+                    没有任何敲击落在计划时间的{" "}
+                    {String(result.tolerance_ms ?? TOLERANCE_MS)} ms 范围内。
                   </td>
                 </tr>
               )}

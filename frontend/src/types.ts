@@ -1,4 +1,6 @@
 export const TOLERANCE_MS = 800;
+export const MIN_TOLERANCE_MS = 100;
+export const MAX_TOLERANCE_MS = 2000;
 
 export interface Cue {
   text: string;
@@ -50,6 +52,10 @@ export type IgnoredTapErrorCode =
   | "IGNORED_TAP_INDEX_OUT_OF_RANGE"
   | "IGNORED_TAP_INDEX_DUPLICATED";
 
+export type ToleranceErrorCode =
+  | "TOLERANCE_NOT_INTEGER"
+  | "TOLERANCE_OUT_OF_RANGE";
+
 export interface Pair {
   cue_index: number;
   cue_text: string;
@@ -70,6 +76,9 @@ export interface MatchResult {
   // Present only when the request carried ignored tap indices: the indices
   // the server actually excluded (never listed as unmatched).
   ignored_tap_indices?: number[];
+  // Present only when the request carried an explicit tolerance: the
+  // candidate window the server actually used for this pairing.
+  tolerance_ms?: number;
   // Present only when the result was produced with a calibration anchor.
   calibrated?: boolean;
   offset_ms?: bigint;
