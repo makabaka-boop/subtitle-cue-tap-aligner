@@ -67,6 +67,7 @@ def main() -> None:
 
     # Legacy request shape: no calibration fields are present at all.
     assert "calibrated" not in matched and "offset_ms" not in matched
+    assert "ignored_tap_indices" not in matched
     assert set(matched["pairs"][0]) == {
         "cue_index",
         "cue_text",
@@ -76,6 +77,79 @@ def main() -> None:
         "tap_time_ms",
         "deviation_ms",
     }
+
+    # A rehearsal with one mistap: the stray hit at 700 ms steals cue 二
+    # (300 ms away) from the real hit at 1000 ms. Ignoring the mistap lets
+    # the real taps pair by the plain 800 ms rule; sequence numbers and
+    # original indices are not reshuffled.
+    mistap_cues = parse_from("一|0\n二|1000")
+    mistap_taps = [
+        {"time_ms": 0, "seq": 0},
+        {"time_ms": 700, "seq": 1},
+        {"time_ms": 1000, "seq": 2},
+    ]
+    raw_mistap = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {"cues": mistap_cues, "taps": mistap_taps},
+    )
+    assert [(p["cue_index"], p["tap_index"]) for p in raw_mistap["pairs"]] == [
+        (0, 0),
+        (1, 1),
+    ]
+    assert raw_mistap["unmatched_tap_indices"] == [2]
+
+    ignored = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {"cues": mistap_cues, "taps": mistap_taps, "ignored_tap_indices": [1]},
+    )
+    assert ignored["ignored_tap_indices"] == [1]
+    assert [
+        (p["cue_index"], p["tap_index"], p["tap_seq"], p["deviation_ms"])
+        for p in ignored["pairs"]
+    ] == [(0, 0, 0, 0), (1, 2, 2, 0)]
+    assert ignored["unmatched_tap_indices"] == []
+    assert ignored["unmatched_cue_indices"] == []
+
+    # Restoring the mistap (resubmitting without the field) makes it
+    # participate again and yields the legacy response shape.
+    restored = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {"cues": mistap_cues, "taps": mistap_taps},
+    )
+    assert restored == raw_mistap
+    assert "ignored_tap_indices" not in restored
+
+    # Anchor recalibration carries the same ignored indices: the mistap stays
+    # excluded, the anchor indices refer to the original tap list.
+    offset_cues = parse_from("一|0\n二|1000")
+    offset_taps = [
+        {"time_ms": 50, "seq": 0},
+        {"time_ms": 700, "seq": 1},
+        {"time_ms": 1050, "seq": 2},
+    ]
+    calibrated_ignored = request(
+        "POST",
+        f"{WEB_BASE}/api/match",
+        {
+            "cues": offset_cues,
+            "taps": offset_taps,
+            "anchors": [{"cue_index": 1, "tap_index": 2}],
+            "ignored_tap_indices": [1],
+        },
+    )
+    assert calibrated_ignored["calibrated"] is True
+    assert calibrated_ignored["ignored_tap_indices"] == [1]
+    assert calibrated_ignored["offset_ms"] == 50
+    assert calibrated_ignored["anchor_tap_index"] == 2
+    assert [p["tap_index"] for p in calibrated_ignored["pairs"]] == [0, 2]
+    assert [p["calibrated_deviation_ms"] for p in calibrated_ignored["pairs"]] == [
+        0,
+        0,
+    ]
+    assert calibrated_ignored["unmatched_tap_indices"] == []
 
     # A full rehearsal with a stable +250 ms global start offset (and a
     # little jitter): every raw deviation is ~250 ms. Calibrating on the
@@ -169,6 +243,32 @@ def main() -> None:
             "anchors": [{"cue_index": 1, "tap_index": 1}],
         },
         "ANCHOR_NOT_PAIRED",
+    )
+    # Illegal ignored indices are rejected with 400 and a Chinese reason; no
+    # new result is produced, so the client keeps its current pairing.
+    rejected(
+        {
+            "cues": mistap_cues,
+            "taps": mistap_taps,
+            "ignored_tap_indices": [1, 1],
+        },
+        "IGNORED_TAP_INDEX_DUPLICATED",
+    )
+    rejected(
+        {
+            "cues": mistap_cues,
+            "taps": mistap_taps,
+            "ignored_tap_indices": [3],
+        },
+        "IGNORED_TAP_INDEX_OUT_OF_RANGE",
+    )
+    rejected(
+        {
+            "cues": mistap_cues,
+            "taps": mistap_taps,
+            "ignored_tap_indices": [-1],
+        },
+        "IGNORED_TAP_INDEX_OUT_OF_RANGE",
     )
 
     # Huge-integer times: the calibrated times and offset stay exact.

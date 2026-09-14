@@ -46,6 +46,10 @@ export type AnchorErrorCode =
   | "ANCHOR_DUPLICATED"
   | "ANCHOR_NOT_PAIRED";
 
+export type IgnoredTapErrorCode =
+  | "IGNORED_TAP_INDEX_OUT_OF_RANGE"
+  | "IGNORED_TAP_INDEX_DUPLICATED";
+
 export interface Pair {
   cue_index: number;
   cue_text: string;
@@ -63,6 +67,9 @@ export interface MatchResult {
   pairs: Pair[];
   unmatched_cue_indices: number[];
   unmatched_tap_indices: number[];
+  // Present only when the request carried ignored tap indices: the indices
+  // the server actually excluded (never listed as unmatched).
+  ignored_tap_indices?: number[];
   // Present only when the result was produced with a calibration anchor.
   calibrated?: boolean;
   offset_ms?: bigint;

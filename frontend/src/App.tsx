@@ -23,6 +23,12 @@ export default function App() {
   const [taps, setTaps] = useState<RecordedTap[]>([]);
   const firstHitRef = useRef<number | null>(null);
 
+  // Indices (into `taps`) the operator flagged as mistaps after the run.
+  // Sorted ascending; the same set is sent on every submit and on every
+  // anchor recalibration, so calibration only ever sees participating taps.
+  // Original times and sequence numbers are never altered by ignoring.
+  const [ignoredTaps, setIgnoredTaps] = useState<number[]>([]);
+
   // Session epoch: every (re)start — and every successful re-import — opens a
   // new rehearsal session. A /api/match response (raw submit or anchor
   // recalibration) is applied only when the session it was issued for is still
@@ -142,6 +148,7 @@ export default function App() {
       setImportNote(`已导入 ${server.cues.length} 行计划。`);
       setResult(null);
       setTaps([]);
+      setIgnoredTaps([]);
       setBusy(false);
       setAnchorBusyCue(null);
       firstHitRef.current = null;
@@ -173,6 +180,7 @@ export default function App() {
     importSeqRef.current += 1;
     setRunning(true);
     setTaps([]);
+    setIgnoredTaps([]);
     setResult(null);
     setBusy(false);
     setAnchorBusyCue(null);
@@ -183,6 +191,17 @@ export default function App() {
 
   function handleStop() {
     setRunning(false);
+  }
+
+  function toggleIgnoreTap(index: number) {
+    // Flagging a mistap (or restoring it) only changes what the next submit
+    // carries; the recorded times and sequence numbers stay untouched, and
+    // the result already on screen is replaced only by the server's answer.
+    setIgnoredTaps((previous) =>
+      previous.includes(index)
+        ? previous.filter((entry) => entry !== index)
+        : [...previous, index].sort((a, b) => a - b),
+    );
   }
 
   function registerTap() {
@@ -207,7 +226,7 @@ export default function App() {
     setRemoteError("");
     setAnchorError("");
     try {
-      const matched = await pairOnServer(cues, taps);
+      const matched = await pairOnServer(cues, taps, undefined, ignoredTaps);
       if (sessionRef.current !== session) {
         return;
       }
@@ -216,6 +235,8 @@ export default function App() {
       if (sessionRef.current !== session) {
         return;
       }
+      // Rejected (e.g. illegal ignored indices): keep the current selection
+      // and the result already on screen so the operator can fix and retry.
       setRemoteError((error as Error).message);
     } finally {
       if (sessionRef.current === session) {
@@ -236,9 +257,14 @@ export default function App() {
     setAnchorBusyCue(pair.cue_index);
     setAnchorError("");
     try {
-      const recalibrated = await pairOnServer(cues, taps, [
-        { cue_index: pair.cue_index, tap_index: pair.tap_index },
-      ]);
+      // The recalibration carries the same ignored indices as the submit:
+      // calibration only processes the taps participating in this session.
+      const recalibrated = await pairOnServer(
+        cues,
+        taps,
+        [{ cue_index: pair.cue_index, tap_index: pair.tap_index }],
+        ignoredTaps,
+      );
       if (sessionRef.current !== session) {
         return;
       }
@@ -362,13 +388,47 @@ export default function App() {
           </button>
         </div>
         {running && <p className="hint">联排中：按空格键记录敲击，首击记为 0 ms。</p>}
+        {!running && taps.length > 0 && (
+          <p className="hint">
+            联排已结束：提交前可核对下列敲击（按采集顺序，序号与原始时间始终保留），
+            明显误触可标记为忽略；被忽略的敲击不参与配对与校准，可随时恢复参与。
+          </p>
+        )}
         <ul className="taps" data-testid="tap-list">
-          {taps.map((tap) => (
-            <li key={tap.seq}>
-              第 {tap.seq + 1} 击：相对首击 {tap.time_ms.toString()} ms
-            </li>
-          ))}
+          {taps.map((tap, index) => {
+            const ignored = ignoredTaps.includes(index);
+            return (
+              <li
+                key={tap.seq}
+                data-testid="tap-item"
+                className={ignored ? "ignored-tap" : undefined}
+              >
+                <span className="tap-label">
+                  第 {tap.seq + 1} 击：相对首击 {tap.time_ms.toString()} ms
+                </span>
+                {!running && ignored && (
+                  <span className="ignored-badge" data-testid="ignored-badge">
+                    已忽略
+                  </span>
+                )}
+                {!running && (
+                  <button
+                    type="button"
+                    data-testid="tap-ignore-toggle"
+                    onClick={() => toggleIgnoreTap(index)}
+                  >
+                    {ignored ? "恢复参与" : "忽略"}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
+        {!running && ignoredTaps.length > 0 && (
+          <p className="note" data-testid="ignored-note">
+            已标记忽略 {ignoredTaps.length} 击：提交配对与锚点重算都将跳过这些敲击。
+          </p>
+        )}
         {remoteError && (
           <p className="errors" data-testid="remote-error">
             {remoteError}
@@ -509,6 +569,22 @@ export default function App() {
                 )}
               </ul>
             </div>
+            {result.ignored_tap_indices && (
+              <div>
+                <h3>已忽略敲击</h3>
+                <ul data-testid="ignored-taps">
+                  {result.ignored_tap_indices.map((index) => (
+                    <li key={index}>
+                      第 {taps[index].seq + 1} 击（
+                      {taps[index].time_ms.toString()} ms）
+                    </li>
+                  ))}
+                  {result.ignored_tap_indices.length === 0 && (
+                    <li className="hint">无</li>
+                  )}
+                </ul>
+              </div>
+            )}
           </div>
         </section>
       )}

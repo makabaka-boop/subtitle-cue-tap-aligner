@@ -51,6 +51,7 @@ function normalizeMatchResult(result: MatchResult): MatchResult {
     })),
     unmatched_cue_indices: result.unmatched_cue_indices,
     unmatched_tap_indices: result.unmatched_tap_indices,
+    ignored_tap_indices: result.ignored_tap_indices,
     calibrated: result.calibrated,
     offset_ms:
       result.offset_ms === undefined ? undefined : asBigInt(result.offset_ms),
@@ -99,6 +100,7 @@ export async function pairOnServer(
   cues: Cue[],
   taps: RecordedTap[],
   anchors?: Anchor[],
+  ignoredTapIndices?: number[],
 ): Promise<MatchResult> {
   const result = await postJSON<MatchResult>("/match", {
     cues: normalizeCues(cues),
@@ -106,6 +108,11 @@ export async function pairOnServer(
     // Omit the field entirely for legacy requests so traffic without an
     // anchor is byte-for-byte identical to the original API on the wire.
     ...(anchors ? { anchors } : {}),
+    // Same for ignored taps: with nothing ignored the request stays exactly
+    // the legacy shape (and so does the response).
+    ...(ignoredTapIndices && ignoredTapIndices.length > 0
+      ? { ignored_tap_indices: ignoredTapIndices }
+      : {}),
   });
   return normalizeMatchResult(result);
 }

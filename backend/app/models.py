@@ -38,3 +38,16 @@ ANCHOR_ERROR_MESSAGES: dict[AnchorErrorCode, str] = {
     AnchorErrorCode.ANCHOR_DUPLICATED: "锚点重复：每次校准只能选择一个唯一配对行，未重新对点",
     AnchorErrorCode.ANCHOR_NOT_PAIRED: "锚点不属于原始配对结果，未重新对点",
 }
+
+
+class IgnoredTapErrorCode(StrEnum):
+    """Why a set of ignored tap indices was rejected."""
+
+    IGNORED_TAP_INDEX_OUT_OF_RANGE = "IGNORED_TAP_INDEX_OUT_OF_RANGE"
+    IGNORED_TAP_INDEX_DUPLICATED = "IGNORED_TAP_INDEX_DUPLICATED"
+
+
+IGNORED_TAP_ERROR_MESSAGES: dict[IgnoredTapErrorCode, str] = {
+    IgnoredTapErrorCode.IGNORED_TAP_INDEX_OUT_OF_RANGE: "忽略下标超出本场敲击范围，未进行配对",
+    IgnoredTapErrorCode.IGNORED_TAP_INDEX_DUPLICATED: "忽略下标重复：每个敲击下标至多出现一次，未进行配对",
+}
